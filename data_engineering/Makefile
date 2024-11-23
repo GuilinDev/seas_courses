@@ -1,4 +1,4 @@
-.PHONY: check-docker install-docker network pull-spark start-master start-worker open-ui pyspark spark-shell stop clean
+.PHONY: check-docker install-docker network pull-spark start-master start-worker open-ui pyspark spark-shell stop clean version
 
 # Create Docker network
 network:
@@ -21,26 +21,42 @@ install-docker:
 	brew install --cask docker
 	@echo "Please open Docker Desktop to complete the installation"
 
-# Pull Spark Docker image
+# Pull Spark Docker image with retry logic
 pull-spark:
-	docker pull bitnami/spark:latest
+	@for i in 1 2 3 4 5; do \
+		echo "Attempting to pull Spark image (attempt $$i/5)..."; \
+		if docker pull bitnami/spark:3.5.3; then \
+			echo "Successfully pulled Spark image"; \
+			break; \
+		fi; \
+		if [ $$i -eq 5 ]; then \
+			echo "Failed to pull Spark image after 5 attempts. Try these fixes:"; \
+			echo "1. Check your internet connection"; \
+			echo "2. Verify Docker Desktop is running"; \
+			echo "3. Try running: docker system prune"; \
+			echo "4. Try with a VPN if behind a corporate firewall"; \
+			exit 1; \
+		fi; \
+		echo "Pull failed, waiting before retry..."; \
+		sleep 10; \
+	done
 
-# Start Spark master node
+# Start Spark master node with Python support
 start-master:
 	docker run -d \
 		--name spark-master \
 		--hostname spark-master \
 		--network spark-network \
-		-p 8090:8080 \
+		-p 8080:8080 \
 		-p 7077:7077 \
 		-e SPARK_MODE=master \
 		-e SPARK_RPC_AUTHENTICATION_ENABLED=no \
 		-e SPARK_RPC_ENCRYPTION_ENABLED=no \
 		-e SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no \
 		-e SPARK_SSL_ENABLED=no \
-		bitnami/spark:latest
+		bitnami/spark:3.5.3
 	@echo "Waiting for Spark master to be ready..."
-	@sleep 20
+	@sleep 15
 	@if docker ps -q -f name=spark-master >/dev/null; then \
 		echo "Spark master is running."; \
 	else \
@@ -63,15 +79,19 @@ start-worker:
 		-e SPARK_RPC_ENCRYPTION_ENABLED=no \
 		-e SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no \
 		-e SPARK_SSL_ENABLED=no \
-		bitnami/spark:latest
+		bitnami/spark:3.5.3
 
 # Open Spark UI in default browser
 open-ui:
-	open http://localhost:8090
+	open http://localhost:8080
 
 # Start PySpark shell
 pyspark:
-	docker exec -it spark-master /opt/bitnami/spark/bin/pyspark
+	docker exec -it spark-master bash -c 'export PATH=/opt/bitnami/spark/bin:$$PATH && \
+		export PYTHONPATH=/opt/bitnami/spark/python/lib/py4j-0.10.9.7-src.zip:/opt/bitnami/spark/python:$$PYTHONPATH && \
+		export SPARK_HOME=/opt/bitnami/spark && \
+		cd /opt/bitnami/spark && \
+		bin/pyspark'
 
 # Start Scala Spark shell
 spark-shell:
@@ -95,7 +115,7 @@ setup: check-docker network pull-spark
 	@sleep 20
 	@echo "Checking Spark UI availability..."
 	@for i in 1 2 3 4 5; do \
-		if curl -s http://localhost:8090 >/dev/null; then \
+		if curl -s http://localhost:8080 >/dev/null; then \
 			echo "Spark UI is ready!"; \
 			break; \
 		fi; \
@@ -108,3 +128,7 @@ setup: check-docker network pull-spark
 	done
 	@echo "Opening Spark UI..."
 	@make open-ui
+
+# Check Spark version
+version:
+	docker exec spark-master spark-submit --version

@@ -159,7 +159,7 @@ df_with_rank = df.withColumn("rank", row_number().over(window_spec))
 ## Monitoring and Management
 
 ### Spark UI
-Access the Spark UI at http://localhost:8090 to monitor:
+Access the Spark UI at http://localhost:8080 to monitor:
 - Running applications
 - Job progress
 - Executor status
